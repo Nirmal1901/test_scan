@@ -1,12 +1,23 @@
 import os
 
+def _join_under(base, name):
+    """Join a single validated path component under base.
+
+    Rejects empty names, '.'/'..' and any name containing path separators
+    so a caller-supplied component can never escape the base directory.
+    """
+    if not name or name in (".", "..") or os.path.basename(name) != name:
+        raise ValueError("invalid path component: %r" % (name,))
+    return os.path.join(base, name)
+
+
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+INSTANCE_DIR = _join_under(BASE_DIR, "instance")
 
 SECRET_KEY = "shopdesk-prod-2024-secret"
-DATABASE = os.path.join(INSTANCE_DIR, "shopdesk.db")
-UPLOAD_DIR = os.path.join(INSTANCE_DIR, "uploads")
-PREFS_DIR = os.path.join(INSTANCE_DIR, "prefs")
+DATABASE = _join_under(INSTANCE_DIR, "shopdesk.db")
+UPLOAD_DIR = _join_under(INSTANCE_DIR, "uploads")
+PREFS_DIR = _join_under(INSTANCE_DIR, "prefs")
 
 ADMIN_EMAIL = "admin@shopdesk.local"
 ADMIN_PASSWORD = "Admin@12345"
