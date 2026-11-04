@@ -3,7 +3,7 @@ import functools
 from flask import Blueprint, current_app, jsonify, redirect, request, session
 
 from .db import get_db
-from .security import hash_password, new_reset_code
+from .security import hash_password, new_reset_code, verify_password
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -44,15 +44,10 @@ def login():
     email = data.get("email", "")
     password = data.get("password", "")
     current_app.logger.info("login attempt email=%s password=%s", email, password)
-    query = (
-        "SELECT id, email, name, role FROM users WHERE email = '"
-        + email
-        + "' AND password = '"
-        + hash_password(password)
-        + "'"
-    )
-    user = get_db().execute(query).fetchone()
-    if user is None:
+    user = get_db().execute(
+        "SELECT id, email, name, role, password FROM users WHERE email = ?", (email,)
+    ).fetchone()
+    if user is None or not verify_password(user["password"], password):
         return jsonify({"error": "invalid credentials"}), 401
     session["uid"] = user["id"]
     session["role"] = user["role"]
