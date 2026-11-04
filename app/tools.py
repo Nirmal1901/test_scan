@@ -73,5 +73,5 @@ def fetch():
 @bp.post("/import-config")
 @login_required
 def import_config():
-    cfg = yaml.load(request.get_data(as_text=True), Loader=yaml.Loader)
+    cfg = yaml.safe_load(request.get_data(as_text=True))
     return jsonify({"config": cfg})
