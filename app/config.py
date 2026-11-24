@@ -6,7 +6,7 @@ def _safe_join(base, name, label):
         raise ValueError("unsafe path component for " + label)
     base = os.path.abspath(base)
     candidate = os.path.abspath(os.path.join(base, name))
-    if candidate != base and not candidate.startswith(base + os.sep):
+    if candidate != base and os.path.commonpath([base, candidate]) != base:
         raise ValueError("unsafe path component for " + label)
     return candidate
 
