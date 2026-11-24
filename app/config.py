@@ -1,12 +1,26 @@
 import os
+import re
+
+_SAFE_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 def _safe_join(base, name, label):
     """Join a single, literal path component onto base, refusing traversal."""
-    if name in ("", ".", "..") or name != os.path.basename(name):
+    # Allow-list gate: reject empty names, "." / "..", absolute paths and any
+    # component containing a path separator or other unexpected character.
+    if not _SAFE_COMPONENT_RE.fullmatch(name or ""):
+        raise ValueError("unsafe path component for " + label)
+    # Second gate: the name must be a bare basename (no separators, no "..").
+    if name != os.path.basename(name):
         raise ValueError("unsafe path component for " + label)
     base = os.path.abspath(base)
-    candidate = os.path.abspath(os.path.join(base, name))
-    if candidate != base and not candidate.startswith(base + os.sep):
+    # Canonicalize (resolving symlinks) before the containment check so a
+    # symlink inside base cannot be used to escape it.
+    candidate = os.path.realpath(os.path.join(base, name))
+    try:
+        contained = os.path.commonpath([candidate, base]) == base
+    except ValueError:
+        contained = False
+    if not contained:
         raise ValueError("unsafe path component for " + label)
     return candidate
 
