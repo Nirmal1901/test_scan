@@ -1,5 +1,7 @@
 import ast
+import ipaddress
 import operator
+import re
 import subprocess
 
 import requests
@@ -11,12 +13,31 @@ from .auth import login_required
 bp = Blueprint("tools", __name__, url_prefix="/tools")
 
 
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$"
+)
+
+
+def _valid_host(host):
+    """Accept only a bare IP address or DNS hostname (no shell metacharacters)."""
+    if not isinstance(host, str) or not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    return bool(_HOSTNAME_RE.match(host))
+
+
 @bp.get("/ping")
 @login_required
 def ping():
     host = request.args.get("host", "127.0.0.1")
+    if not _valid_host(host):
+        return jsonify({"error": "invalid host"}), 400
     result = subprocess.run(
-        "ping -c 1 " + host, shell=True, capture_output=True, text=True, timeout=10
+        ["ping", "-c", "1", host], capture_output=True, text=True, timeout=10
     )
     return jsonify({"exit": result.returncode, "output": result.stdout})
 
