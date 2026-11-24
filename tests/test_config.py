@@ -59,6 +59,61 @@ def test_safe_join_rejects_unsafe_component(name):
     assert "unsafe path component for DATABASE" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "sub/../shopdesk.db",  # normalizes back inside, but has a separator
+        "uploads/",  # trailing separator
+        "./shopdesk.db",
+        "..\\etc\\passwd",  # windows-style traversal attempt
+        "a/../../b",
+    ],
+)
+def test_safe_join_rejects_names_with_path_components(name):
+    with pytest.raises(ValueError):
+        config._safe_join(os.path.join(os.sep, "srv", "instance"), name, "UPLOAD_DIR")
+
+
+def test_safe_join_rejects_absolute_component(tmp_path):
+    base = str(tmp_path / "instance")
+    os.makedirs(base)
+    with pytest.raises(ValueError):
+        config._safe_join(base, str(tmp_path / "elsewhere.db"), "DATABASE")
+
+
+def test_safe_join_rejects_symlinked_component_that_escapes(tmp_path):
+    # A symlink inside base pointing outside base must not be followed out of it.
+    base = tmp_path / "instance"
+    outside = tmp_path / "outside"
+    base.mkdir()
+    outside.mkdir()
+    link = base / "escape"
+    try:
+        os.symlink(str(outside), str(link))
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+
+    # The literal component "escape" is accepted as a name (it is a single
+    # component), but the resolved path must still be reported inside base.
+    joined = config._safe_join(str(base), "escape", "UPLOAD_DIR")
+    assert os.path.commonpath([os.path.abspath(joined), os.path.abspath(str(base))]) == os.path.abspath(
+        str(base)
+    )
+    # And a name that would traverse through the link is refused outright.
+    with pytest.raises(ValueError):
+        config._safe_join(str(base), "escape/../../outside", "UPLOAD_DIR")
+
+
+def test_safe_join_keeps_normal_names_inside_base(tmp_path):
+    base = str(tmp_path)
+    for name in ("shopdesk.db", "uploads", "prefs", "user-42.pkl"):
+        joined = config._safe_join(base, name, "TEST")
+        assert os.path.commonpath([os.path.abspath(joined), os.path.abspath(base)]) == os.path.abspath(
+            base
+        )
+        assert joined == os.path.join(base, name)
+
+
 def test_safe_join_result_is_usable_for_directory_creation(tmp_path):
     # create_app() calls os.makedirs() on these values, so the joined paths
     # must be writable locations, not just syntactic strings.

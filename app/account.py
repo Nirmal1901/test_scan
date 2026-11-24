@@ -1,5 +1,5 @@
+import json
 import os
-import pickle
 
 from flask import Blueprint, current_app, jsonify, request, session
 
@@ -10,7 +10,15 @@ bp = Blueprint("account", __name__, url_prefix="/account")
 
 
 def _prefs_path(uid):
-    return os.path.join(current_app.config["PREFS_DIR"], str(uid) + ".pkl")
+    try:
+        uid = int(uid)
+    except (TypeError, ValueError):
+        raise ValueError("invalid user id")
+    base = os.path.abspath(current_app.config["PREFS_DIR"])
+    path = os.path.abspath(os.path.join(base, str(uid) + ".pkl"))
+    if os.path.commonpath([base, path]) != base:
+        raise ValueError("invalid user id")
+    return path
 
 
 @bp.get("/prefs")
@@ -19,16 +27,19 @@ def get_prefs():
     path = _prefs_path(session["uid"])
     if not os.path.exists(path):
         return jsonify({})
-    with open(path, "rb") as fh:
-        return jsonify(pickle.load(fh))
+    with open(path, "r", encoding="utf-8") as fh:
+        try:
+            return jsonify(json.load(fh))
+        except (ValueError, OSError):
+            return jsonify({})
 
 
 @bp.put("/prefs")
 @login_required
 def put_prefs():
     prefs = request.get_json(silent=True) or {}
-    with open(_prefs_path(session["uid"]), "wb") as fh:
-        pickle.dump(prefs, fh)
+    with open(_prefs_path(session["uid"]), "w", encoding="utf-8") as fh:
+        json.dump(prefs, fh)
     return jsonify(prefs)
 
 
