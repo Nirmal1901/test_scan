@@ -1,7 +1,10 @@
 import os
 import re
 
-_SAFE_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Allow-list of characters permitted in a single path component. Spaces are
+# allowed (uploaded filenames may contain them); path separators, NUL bytes and
+# control characters are not.
+_SAFE_COMPONENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\- ]*")
 
 def _safe_join(base, name, label):
     """Join a single, literal path component onto base, refusing traversal."""
@@ -14,15 +17,20 @@ def _safe_join(base, name, label):
         raise ValueError("unsafe path component for " + label)
     base = os.path.abspath(base)
     # Canonicalize (resolving symlinks) before the containment check so a
-    # symlink inside base cannot be used to escape it.
+    # symlink inside base cannot be used to escape it. Compare against the
+    # canonicalized base too, otherwise a symlinked base (e.g. macOS /var ->
+    # /private/var) would fail the containment check for every name.
+    real_base = os.path.realpath(base)
     candidate = os.path.realpath(os.path.join(base, name))
     try:
-        contained = os.path.commonpath([candidate, base]) == base
+        contained = os.path.commonpath([candidate, real_base]) == real_base
     except ValueError:
         contained = False
     if not contained:
         raise ValueError("unsafe path component for " + label)
-    return candidate
+    # Return the plain (non-symlink-resolved) join so callers get the path they
+    # asked for; containment was already proven above.
+    return os.path.join(base, name)
 
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
