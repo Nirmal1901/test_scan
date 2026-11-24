@@ -45,6 +45,49 @@ def test_safe_join_accepts_normal_file_and_dir_names(tmp_path):
         assert os.path.dirname(joined) == base
 
 
+def test_safe_join_accepts_numeric_prefs_filename(tmp_path):
+    # account.py builds "<uid>.pkl" from an int-coerced session uid.
+    base = str(tmp_path)
+    for uid in (1, 42, 999999):
+        name = "%d.pkl" % uid
+        assert config._safe_join(base, name, "PREFS_DIR") == os.path.join(base, name)
+
+
+def test_safe_join_accepts_uploaded_filename_with_spaces(tmp_path):
+    base = str(tmp_path)
+    joined = config._safe_join(base, "q3 report.v2.csv", "UPLOAD_DIR")
+    assert joined == os.path.join(base, "q3 report.v2.csv")
+    assert os.path.dirname(joined) == base
+
+
+def test_safe_join_accepts_name_that_does_not_exist_yet(tmp_path):
+    # Uploads and prefs are written to paths that do not exist at join time.
+    base = str(tmp_path)
+    joined = config._safe_join(base, "brand-new.txt", "UPLOAD_DIR")
+    assert not os.path.exists(joined)
+    assert joined == os.path.join(base, "brand-new.txt")
+
+
+def test_safe_join_accepts_existing_file_inside_base(tmp_path):
+    base = str(tmp_path)
+    existing = os.path.join(base, "already.txt")
+    with open(existing, "w", encoding="utf-8") as fh:
+        fh.write("x")
+    assert config._safe_join(base, "already.txt", "UPLOAD_DIR") == existing
+
+
+def test_safe_join_accepts_symlinked_base(tmp_path):
+    # macOS /var -> /private/var style bases must still work: containment is
+    # checked against the canonicalized base.
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    os.symlink(str(real), str(link))
+    joined = config._safe_join(str(link), "shopdesk.db", "DATABASE")
+    assert os.path.basename(joined) == "shopdesk.db"
+    assert os.path.realpath(os.path.dirname(joined)) == os.path.realpath(str(real))
+
+
 def test_safe_join_normalizes_relative_base(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs(os.path.join(str(tmp_path), "instance"))
@@ -80,6 +123,24 @@ def test_required_settings_are_present_and_typed():
     assert isinstance(config.PAYMENT_API_KEY, str) and config.PAYMENT_API_KEY
     for key in ("SESSION_COOKIE_HTTPONLY", "SESSION_COOKIE_SECURE"):
         assert isinstance(getattr(config, key), bool)
+
+
+def test_settings_flow_into_app_config(tmp_path):
+    # The settings are read through Flask's config, so they must survive
+    # from_object() with their values intact.
+    app = create_app(
+        {
+            "TESTING": True,
+            "DATABASE": str(tmp_path / "settings.db"),
+            "UPLOAD_DIR": str(tmp_path / "settings-uploads"),
+            "PREFS_DIR": str(tmp_path / "settings-prefs"),
+        }
+    )
+    assert app.config["SECRET_KEY"] == config.SECRET_KEY
+    assert app.config["ADMIN_EMAIL"] == config.ADMIN_EMAIL
+    assert app.config["ADMIN_PASSWORD"] == config.ADMIN_PASSWORD
+    assert app.config["PAYMENT_API_URL"] == config.PAYMENT_API_URL
+    assert app.config["PAYMENT_API_KEY"] == config.PAYMENT_API_KEY
 
 
 def test_create_app_boots_with_module_default_paths(tmp_path, monkeypatch):
