@@ -4,13 +4,16 @@ import os
 from flask import Blueprint, current_app, jsonify, request, session
 
 from .auth import login_required
+from .config import _safe_join
 from .db import get_db
 
 bp = Blueprint("account", __name__, url_prefix="/account")
 
 
 def _prefs_path(uid):
-    return os.path.join(current_app.config["PREFS_DIR"], str(uid) + ".pkl")
+    # Coerce to int so the path component is provably numeric (no ".." or
+    # separators can survive), then join through the traversal guard.
+    return _safe_join(current_app.config["PREFS_DIR"], "%d.pkl" % int(uid), "PREFS_DIR")
 
 
 @bp.get("/prefs")
