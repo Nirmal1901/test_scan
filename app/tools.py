@@ -1,3 +1,5 @@
+import ast
+import operator
 import subprocess
 
 import requests
@@ -19,11 +21,57 @@ def ping():
     return jsonify({"exit": result.returncode, "output": result.stdout})
 
 
+_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+}
+
+_UNARY_OPS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+
+def _eval_node(node):
+    if isinstance(node, ast.Expression):
+        return _eval_node(node.body)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+            raise ValueError("invalid expression")
+        return node.value
+    if isinstance(node, ast.BinOp):
+        op = _BIN_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError("invalid expression")
+        return op(_eval_node(node.left), _eval_node(node.right))
+    if isinstance(node, ast.UnaryOp):
+        op = _UNARY_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError("invalid expression")
+        return op(_eval_node(node.operand))
+    raise ValueError("invalid expression")
+
+
+def _safe_eval(expr):
+    if not isinstance(expr, str):
+        raise ValueError("invalid expression")
+    return _eval_node(ast.parse(expr, mode="eval"))
+
+
 @bp.post("/calc")
 @login_required
 def calc():
     expr = (request.get_json(silent=True) or {}).get("expr", "")
-    return jsonify({"result": eval(expr)})
+    try:
+        result = _safe_eval(expr)
+    except (ValueError, SyntaxError, TypeError, ZeroDivisionError, OverflowError):
+        return jsonify({"error": "invalid expression"}), 400
+    return jsonify({"result": result})
 
 
 @bp.get("/fetch")
