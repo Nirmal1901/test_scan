@@ -22,11 +22,11 @@ def _prefs_path(uid):
     coerced to int so the path component is provably numeric (no ".." or
     separators can survive), then joined through the traversal guard.
     """
-    return _safe_join(
-        current_app.config["PREFS_DIR"],
-        "{}{}".format(int(uid), PREFS_SUFFIX),
-        "PREFS_DIR",
-    )
+    # int() raises on anything non-numeric, so the component below is built
+    # only from decimal digits plus the fixed suffix.
+    uid = int(uid)
+    name = "{}{}".format(uid, PREFS_SUFFIX)
+    return _safe_join(current_app.config["PREFS_DIR"], name, "PREFS_DIR")
 
 
 @bp.get("/prefs")
