@@ -2,8 +2,8 @@ import hashlib
 import hmac
 import secrets
 
-PBKDF2_ALGORITHM = "pbkdf2_sha256"
-PBKDF2_ITERATIONS = 200_000
+PBKDF2_ALGORITHM = "pbkdf2_sha256"  # SHA-256, not SHA-1/MD5
+PBKDF2_ITERATIONS = 600_000  # OWASP 2023 guidance for PBKDF2-HMAC-SHA256
 PBKDF2_SALT_BYTES = 16
 
 
