@@ -102,6 +102,69 @@ def test_safe_join_rejects_unsafe_component(name):
     assert "unsafe path component for DATABASE" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "..",
+        "../x",
+        "/etc/passwd",
+        "a/b",
+        "./x",
+        "x/../y",
+        "..\\x",
+        "sub/../../etc/passwd",
+        "a\x00b",
+        "-leading-dash",
+        ".hidden",
+    ],
+)
+def test_safe_join_rejects_traversal_and_separators(tmp_path, name):
+    # The guard must refuse every shape of traversal / separator / odd
+    # component, while still raising the documented ValueError.
+    with pytest.raises(ValueError) as excinfo:
+        config._safe_join(str(tmp_path), name, "UPLOAD_DIR")
+    assert "unsafe path component for UPLOAD_DIR" in str(excinfo.value)
+
+
+def test_safe_join_rejects_none_and_empty(tmp_path):
+    for name in (None, ""):
+        with pytest.raises(ValueError):
+            config._safe_join(str(tmp_path), name, "UPLOAD_DIR")
+
+
+def test_safe_join_accepts_legit_upload_names(tmp_path):
+    # Names the storefront actually uploads must keep working unchanged.
+    base = str(tmp_path)
+    for name in (
+        "hello.txt",
+        "report.csv",
+        "q3 report.v2.csv",
+        "IMG_2024-01-02.png",
+        "invoice_42.pdf",
+        "a.b.c.d.txt",
+        "UPPER.TXT",
+        "with space and-dash.txt",
+    ):
+        joined = config._safe_join(base, name, "UPLOAD_DIR")
+        assert joined == os.path.join(base, name)
+        assert os.path.dirname(joined) == base
+
+
+def test_safe_join_accepts_legit_prefs_names(tmp_path):
+    base = str(tmp_path)
+    for uid in (1, 7, 42, 123456):
+        name = "%d.pkl" % uid
+        assert config._safe_join(base, name, "PREFS_DIR") == os.path.join(base, name)
+
+
+def test_safe_join_does_not_create_or_touch_files(tmp_path):
+    # The guard is a pure path computation: it must not create the target.
+    base = str(tmp_path)
+    joined = config._safe_join(base, "never-written.txt", "UPLOAD_DIR")
+    assert not os.path.exists(joined)
+    assert os.listdir(base) == []
+
+
 def test_safe_join_result_is_usable_for_directory_creation(tmp_path):
     # create_app() calls os.makedirs() on these values, so the joined paths
     # must be writable locations, not just syntactic strings.

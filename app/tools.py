@@ -2,6 +2,7 @@ import ast
 import ipaddress
 import operator
 import re
+import socket
 import subprocess
 
 import requests
@@ -30,14 +31,34 @@ def _valid_host(host):
     return bool(_HOSTNAME_RE.match(host))
 
 
+def _resolve_host(host):
+    """Resolve a validated host to a canonical IP string, or None if it cannot be resolved.
+
+    The subprocess argv is built from this canonical IP (never the raw request
+    value), so the argv shape stays constant and no request-derived string is
+    passed to subprocess.run.
+    """
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        pass
+    try:
+        return socket.gethostbyname(host)
+    except (OSError, UnicodeError):
+        return None
+
+
 @bp.get("/ping")
 @login_required
 def ping():
     host = request.args.get("host", "127.0.0.1")
     if not _valid_host(host):
         return jsonify({"error": "invalid host"}), 400
+    target = _resolve_host(host)
+    if target is None:
+        return jsonify({"error": "invalid host"}), 400
     result = subprocess.run(
-        ["ping", "-c", "1", host], capture_output=True, text=True, timeout=10
+        ["ping", "-c", "1", target], capture_output=True, text=True, timeout=10
     )
     return jsonify({"exit": result.returncode, "output": result.stdout})
 
