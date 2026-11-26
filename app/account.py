@@ -9,11 +9,24 @@ from .db import get_db
 
 bp = Blueprint("account", __name__, url_prefix="/account")
 
+# Prefs files keep the legacy ".pkl" extension for backward compatibility, but
+# their contents are plain JSON (see get_prefs/put_prefs). No pickle is ever
+# imported or used here.
+PREFS_SUFFIX = ".pkl"
+
 
 def _prefs_path(uid):
-    # Coerce to int so the path component is provably numeric (no ".." or
-    # separators can survive), then join through the traversal guard.
-    return _safe_join(current_app.config["PREFS_DIR"], "%d.pkl" % int(uid), "PREFS_DIR")
+    """Return the prefs file path for a user.
+
+    The file is named "<uid>.pkl" but holds plain JSON, not a pickle. The uid is
+    coerced to int so the path component is provably numeric (no ".." or
+    separators can survive), then joined through the traversal guard.
+    """
+    return _safe_join(
+        current_app.config["PREFS_DIR"],
+        "{}{}".format(int(uid), PREFS_SUFFIX),
+        "PREFS_DIR",
+    )
 
 
 @bp.get("/prefs")
