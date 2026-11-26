@@ -1,5 +1,10 @@
 import json
 import os
+import pickle
+
+import pytest
+
+from app.account import _prefs_path
 
 
 def test_prefs_roundtrip(client, login):
@@ -98,3 +103,94 @@ def test_user_directory_for_admin(client, login):
     assert resp.status_code == 200
     emails = [u["email"] for u in resp.get_json()]
     assert "buyer@test.local" in emails
+
+
+# --- Post-fix regression guards: prefs must stay plain JSON in "<uid>.pkl" ---
+
+
+def test_prefs_file_is_plain_json_with_no_pickle_opcodes(app, client, login):
+    # The fix swapped pickle for json while keeping the legacy ".pkl" filename.
+    # Stored prefs must therefore be readable by json.load and must not contain
+    # any pickle opcode bytes (a pickle stream would start with b"\x80").
+    user = login("buyer@test.local", "buyer-pass-1")
+    prefs = {"theme": "dark", "page_size": 25, "nested": {"a": [1, 2, 3]}}
+    assert client.put("/account/prefs", json=prefs).status_code == 200
+
+    path = os.path.join(app.config["PREFS_DIR"], "%d.pkl" % user["id"])
+    with open(path, "rb") as fh:
+        raw = fh.read()
+
+    # Plain JSON, not a pickle stream.
+    assert not raw.startswith(b"\x80")
+    assert b"\x80" not in raw
+    assert json.loads(raw.decode("utf-8")) == prefs
+    # A pickle stream would not parse as JSON; prove it is not one.
+    with pytest.raises(Exception):
+        pickle.loads(raw)
+
+
+def test_prefs_roundtrip_preserves_json_types(app, client, login):
+    # Values must survive the JSON roundtrip with their types intact (ints stay
+    # ints, floats stay floats, booleans stay booleans, nulls stay null).
+    login("buyer@test.local", "buyer-pass-1")
+    prefs = {
+        "page_size": 25,
+        "ratio": 0.5,
+        "compact": True,
+        "archived": False,
+        "nickname": None,
+        "tags": ["a", "b"],
+    }
+    assert client.put("/account/prefs", json=prefs).status_code == 200
+    got = client.get("/account/prefs").get_json()
+    assert got == prefs
+    assert isinstance(got["page_size"], int)
+    assert isinstance(got["ratio"], float)
+    assert got["compact"] is True
+    assert got["archived"] is False
+    assert got["nickname"] is None
+
+
+def test_prefs_path_is_numeric_pkl_inside_prefs_dir(app):
+    # _prefs_path() must keep producing "<PREFS_DIR>/<uid>.pkl" for real uids.
+    with app.app_context():
+        for uid in (1, 42, 999999):
+            path = _prefs_path(uid)
+            assert path == os.path.join(app.config["PREFS_DIR"], "%d.pkl" % uid)
+            assert os.path.dirname(path) == app.config["PREFS_DIR"]
+            assert path.endswith(".pkl")
+
+
+def test_prefs_path_accepts_numeric_string_uid(app):
+    # Session uids may arrive as strings; int() coercion must still work.
+    with app.app_context():
+        assert _prefs_path("7") == os.path.join(app.config["PREFS_DIR"], "7.pkl")
+
+
+def test_prefs_path_rejects_non_numeric_uid(app):
+    # The uid is coerced with int(), so anything non-numeric is refused before
+    # it can reach the filesystem.
+    with app.app_context():
+        for bad in ("../1", "1/2", "abc", "", None):
+            with pytest.raises((ValueError, TypeError)):
+                _prefs_path(bad)
+
+
+def test_prefs_put_then_get_after_relogin(client, login):
+    # Prefs are keyed by uid, so they must survive a logout/login cycle.
+    login("buyer@test.local", "buyer-pass-1")
+    assert client.put("/account/prefs", json={"theme": "dark"}).status_code == 200
+    client.post("/auth/logout")
+    login("buyer@test.local", "buyer-pass-1")
+    assert client.get("/account/prefs").get_json() == {"theme": "dark"}
+
+
+def test_user_directory_still_returns_seeded_rows_after_fix(client, login):
+    # /account/users is on the same blueprint as the changed prefs code; it must
+    # keep returning the seeded users with their roles.
+    login("ops@test.local", "ops-pass-1")
+    rows = client.get("/account/users").get_json()
+    by_email = {u["email"]: u for u in rows}
+    assert by_email["ops@test.local"]["role"] == "admin"
+    assert by_email["buyer@test.local"]["role"] == "customer"
+    assert by_email["buyer@test.local"]["name"] == "Buyer"
